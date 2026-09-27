@@ -1,0 +1,8 @@
+{
+  "name": "rope-notes-releases",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/release-catalog.test.mjs"
+  }
+}
