@@ -100,3 +100,7 @@ npm test
 The tests cover the committed cross-runtime vector, signature mutations,
 noncanonical base64url segments, unknown key IDs, deterministic serialization,
 empty catalogs, target extensions, file sizes, and SHA-256 computation.
+
+macOS artifacts may be signed, notarized `.dmg` installers or legacy `.zip` archives.
+DMG catalogs require a client with DMG filename support; older ZIP-only clients
+need a manual installer update first.

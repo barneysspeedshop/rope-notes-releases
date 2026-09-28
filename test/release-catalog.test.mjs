@@ -22,7 +22,7 @@ const publicPem = await readFile(new URL('../release-signing-public.pem', import
 const stableJws = (await readFile(new URL('../stable.jws', import.meta.url), 'utf8')).trim();
 
 test('the committed empty catalog is a valid cross-runtime vector', () => {
-  const payload = verifyJws(stableJws, publicPem);
+  const payload = verifyJws('eyJhbGciOiJFZERTQSIsInR5cCI6InJvcGUtbm90ZXMtcmVsZWFzZStqd3MiLCJraWQiOiJyZWxlYXNlLTIwMjYtMDkifQ.eyJzY2hlbWFWZXJzaW9uIjoxLCJjaGFubmVsIjoic3RhYmxlIiwiY2F0YWxvZ1NlcXVlbmNlIjoxLCJyZWxlYXNlIjpudWxsfQ.GwvbAOGwyB_d02NckXy27bk4C3ydFnh6AONcvw7LkBvXdzMc3xRMZFTCOXRD7z6BsV-kepgtvNA7pkX-Fdz3Aw', publicPem);
   assert.deepEqual(payload, {
     schemaVersion: 1,
     channel: 'stable',
@@ -157,4 +157,24 @@ test('key generation refuses to overwrite either key file', async () => {
   );
   assert.equal(await readFile(privatePath, 'utf8'), 'keep-private');
   assert.equal(await readFile(publicPath, 'utf8'), 'keep-public');
+});
+
+test('current published catalog verifies', () => {
+  assert.equal(verifyJws(stableJws, publicPem).channel, 'stable');
+});
+
+test('macOS supports DMG and legacy ZIP installers, rejecting other extensions', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rope-macos-catalog-'));
+  const file = join(directory, 'installer');
+  await writeFile(file, Buffer.from('installer bytes'));
+  for (const target of ['macos-arm64', 'macos-x64']) {
+    for (const extension of ['dmg', 'zip', 'exe']) {
+      const task = buildRelease({sequence: 5, id: 'test', version: '1.3.4', build: 21,
+        publishedAt: '2026-09-28T00:00:00Z', artifacts: {
+          [target]: {path: file, filename: `RopeNotes.${extension}`}
+        }});
+      if (extension === 'exe') await assert.rejects(task, /ZIP or DMG/);
+      else assert.equal((await task).release.artifacts[target].filename, `RopeNotes.${extension}`);
+    }
+  }
 });

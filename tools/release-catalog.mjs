@@ -95,8 +95,8 @@ function validateFilename(target, value) {
   if (target === 'linux-x64' && !value.endsWith('.AppImage')) {
     fail('linux-x64 artifacts must be AppImages');
   }
-  if (target.startsWith('macos-') && !value.endsWith('.zip')) {
-    fail(`${target} artifacts must be ZIP files`);
+  if (target.startsWith('macos-') && !value.endsWith('.zip') && !value.endsWith('.dmg')) {
+    fail(`${target} artifacts must be ZIP or DMG files`);
   }
 }
 
