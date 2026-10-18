@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,15 +21,31 @@ import {
 const publicPem = await readFile(new URL('../release-signing-public.pem', import.meta.url));
 const stableJws = (await readFile(new URL('../stable.jws', import.meta.url), 'utf8')).trim();
 
+const publishedCatalogs = (await readdir(new URL('../', import.meta.url)))
+  .filter(file => /^stable-(linux-x64|macos-arm64|macos-x64)\.jws$/.test(file));
+for (const file of publishedCatalogs) {
+  const target = file.slice('stable-'.length, -'.jws'.length);
+  test(`the ${target} catalog has a valid signature and target artifact`, async () => {
+    const signed = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+    const catalog = verifyJws(signed, publicPem);
+    assert.ok(catalog.release.artifacts[target]);
+  });
+}
+
 test('the committed empty catalog is a valid cross-runtime vector', () => {
-  const payload = verifyJws('eyJhbGciOiJFZERTQSIsInR5cCI6InJvcGUtbm90ZXMtcmVsZWFzZStqd3MiLCJraWQiOiJyZWxlYXNlLTIwMjYtMDkifQ.eyJzY2hlbWFWZXJzaW9uIjoxLCJjaGFubmVsIjoic3RhYmxlIiwiY2F0YWxvZ1NlcXVlbmNlIjoxLCJyZWxlYXNlIjpudWxsfQ.GwvbAOGwyB_d02NckXy27bk4C3ydFnh6AONcvw7LkBvXdzMc3xRMZFTCOXRD7z6BsV-kepgtvNA7pkX-Fdz3Aw', publicPem);
+  const emptyJws = 'eyJhbGciOiJFZERTQSIsInR5cCI6InJvcGUtbm90ZXMtcmVsZWFzZStqd3MiLCJraWQiOiJyZWxlYXNlLTIwMjYtMDkifQ.eyJzY2hlbWFWZXJzaW9uIjoxLCJjaGFubmVsIjoic3RhYmxlIiwiY2F0YWxvZ1NlcXVlbmNlIjoxLCJyZWxlYXNlIjpudWxsfQ.GwvbAOGwyB_d02NckXy27bk4C3ydFnh6AONcvw7LkBvXdzMc3xRMZFTCOXRD7z6BsV-kepgtvNA7pkX-Fdz3Aw';
+  const payload = verifyJws(emptyJws, publicPem);
   assert.deepEqual(payload, {
     schemaVersion: 1,
     channel: 'stable',
     catalogSequence: 1,
     release: null,
   });
-  assert.equal(parseJws(stableJws).header.kid, 'release-2026-09');
+  assert.equal(parseJws(emptyJws).header.kid, 'release-2026-09');
+});
+
+test('the current stable catalog has a valid signature and schema', () => {
+  assert.equal(verifyJws(stableJws, publicPem, { keyId: 'release-2026-09' }).channel, 'stable');
 });
 
 test('JWS serialization is deterministic for a generated key', () => {
@@ -128,6 +144,34 @@ test('artifact metadata is computed and target extensions are enforced', async (
     }),
     /AppImages/,
   );
+});
+
+test('macOS artifact catalogs accept DMG and legacy ZIP files and reject other extensions', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rope-catalog-macos-'));
+  const file = join(directory, 'artifact');
+  await writeFile(file, 'artifact bytes');
+  for (const target of ['macos-arm64', 'macos-x64']) {
+    for (const extension of ['dmg', 'zip', 'pkg', 'AppImage']) {
+      const filename = `RopeNotes.${extension}`;
+      const result = buildRelease({
+        sequence: 3,
+        id: '2026.09.27',
+        version: '1.4.0',
+        build: 42,
+        publishedAt: '2026-09-27T12:00:00Z',
+        artifacts: { [target]: { path: file, filename } },
+      });
+      if (extension === 'dmg' || extension === 'zip') {
+        const catalog = await result;
+        const pair = generateKeyPairSync('ed25519');
+        const signed = createJws(catalog, pair.privateKey.export({ format: 'pem', type: 'pkcs8' }));
+        const verified = verifyJws(signed, pair.publicKey.export({ format: 'pem', type: 'spki' }));
+        assert.equal(verified.release.artifacts[target].filename, filename);
+      } else {
+        await assert.rejects(result, /artifacts must be/);
+      }
+    }
+  }
 });
 
 test('empty catalog and payload shape are validated', async () => {
